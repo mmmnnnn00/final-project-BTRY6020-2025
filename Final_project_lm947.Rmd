@@ -1,0 +1,337 @@
+
+---
+title: "Final Project Analysis"
+author: "Min-Ruei, Lee"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+Diabetes is a complex metabolic disorder and a growing global health burden due to its high prevalence, associated disability, and mortality. It is characterized by hyperglycemia and classified into several types, including type 1 diabetes, type 2 diabetes, and gestational diabetes mellitus. Diabetes significantly increases the risk of serious complications such as amputation, vision loss, and renal failure, and is associated with cardiovascular disease, dementia, certain cancers, and infections such as turberculosis. Fortunately, diabetes can be detected at the primary health-care level, and early treatment can reduce the risk of complications and slows the disease progression as well. 
+
+Prediabetes represents a large pool of individuals at high risk of diabetes. Studies estimated that about 70% of prediabetes will develop diabetes within 10 years, and 90% within 20 years. However, prediabetes mostly has no obvious clinical symptoms, making it easy to overlook. This highlights the importance of improving early risk identification. 
+
+This project aims to build up a linear regression model to predict the plasma glucose concentration concentration over 2 hours in an oral glucose tolerance test (OGTT). OGTT involves measuring blood glucose levels before and after consuming a sugary drink and is considered a sensitive tool for detecting early glycemic abnormalities. Although hemoglobin A1c (HbA1c) is more commonly used in clinical practice to diagnose diabetes, the OGTT is more sensitive and can detect blood sugar problems that HbA1c might miss — especially in individuals with borderline or fluctuating glucose levels. However, OGTT is time-consuming, requires multiple blood draws, and may not be practical for routine screening. This highlights the value of developing a predictive model that can estimate OGTT results using simpler, more accessible clinical features.
+
+For this purpose, I use the **Healthcare Diabetes Dataset** from Kaggle  
+([https://www.kaggle.com/datasets/nanditapore/healthcare-diabetes/data](https://www.kaggle.com/datasets/nanditapore/healthcare-diabetes/data))  
+which includes several health-related attributes that may serve as predictors of glucose levels.
+
+**The dataset contains the following columns:**
+
+1. `Id`: Unique identifier for each data entry  
+2. `Pregnancies`: Number of times pregnant  
+3. `Glucose`: Plasma glucose concentration 2 hours after an oral glucose tolerance test  
+4. `BloodPressure`: Diastolic blood pressure (mm Hg)  
+5. `SkinThickness`: Triceps skinfold thickness (mm)  
+6. `Insulin`: 2-hour serum insulin (μU/mL)  
+7. `BMI`: Body mass index (weight in kg / height in m²)  
+8. `DiabetesPedigreeFunction`: A score reflecting genetic predisposition to diabetes  
+9. `Age`: Age in years  
+10. `Outcome`: Binary indicator for diabetes diagnosis (1 = diabetes, 0 = non-diabetes)
+
+This analysis aims to construct a model that provides a cost-effective and interpretable way to estimate glucose response during OGTT, supporting early detection and preventive care efforts.
+
+
+# Methodology
+In this project, multiple linear regression was used to examine the relationship between various health-related predictors and the continuous outcome: plasma glucose concentration measured two hours after an OGTT. This approach provided interpretable estimates and enabled statistical inference through confidence intervals and hypothesis testing.
+
+## Exploratory Data Analysis
+Descriptive statistics and visualizations (histograms, bar plots) were used to explore variable distributions. Implausible values (e.g., zeros in glucose or BMI) were set to NA, and rows with missing data were removed. Outliers were filtered using physiological thresholds, and skewed variables were log-transformed to improve model fit.
+
+## Regression Assumptions Verification
+To ensure the validity of the linear regression model, key assumptions were examined. Linearity was assessed by examining residuals versus fitted values for any systematic patterns. Normality of residuals was evaluated using both histograms and Q-Q plots of residuals. Homoscedasticity (constant variance) was checked by visual inspection of the residuals vs. fitted plot.Independence of observations was assumed based on the cross-sectional nature of the data. Multicollinearity among predictors was assessed using the Variance Inflation Factor (VIF).
+
+## Assumption Violation Handling
+If assumption violations had been identified, appropriate corrections, such as log-transformations, would have been applied to improve normality and homoscedasticity. However, after evaluating residual and Q-Q plots, no severe violations were found, so further corrections were not necessary.
+
+## Variable Selection & Hypothesis Testing
+To identify an effective model, two variable selection techniques were applied, including forward selection using Akaike Information Criterion (AIC)  and forward selection using Bayesian Information Criterion (BIC).  After selecting candidate models, hypothesis tests were performed using the p-values from the model summary to assess the statistical significance of individual predictors. Model performance was evaluated using metrics such as R², adjusted R², and RMSE. 10-fold cross-validation was conducted to assess the model’s predictive performance and generalizability.
+
+
+## Software and Packages
+All analyses were conducted using R version 4.4.1 in RStudio version 2024.06.14. The following R packages were used: `dplyr`, `ggplot2`, `car`, `broom`, and `caret`. 
+
+# Results
+
+## Exploratory Data Analysis
+
+```{r}
+# Load in data
+dm_data <- read.csv("/Users/arielle/Documents/25 Spring/BTRY 6020/final project/Healthcare-Diabetes.csv")
+```
+
+### Summary statistics of variables
+```{r}
+str(dm_data)
+summary(dm_data)
+```
+
+### Visualization of distributions and relationships 
+### (before data cleaning)
+```{r visualization (before data cleaning)}
+library(dplyr)
+library(ggplot2)
+# Histograms for continuous variables
+numeric_vars <- dm_data %>%
+  select(where(is.numeric)) %>%
+  select(-Id) %>%
+  select(-Outcome) 
+
+# Loop to plot histograms
+for (var in names(numeric_vars)) {
+  plot1 <- ggplot(dm_data, aes_string(x = var)) +
+    geom_histogram(bins = 30, fill = "steelblue", color = "white", alpha = 0.8) +
+    labs(title = paste("Histogram of", var), x = var, y = "Count") +
+    theme_minimal()
+  print(plot1)
+}
+```
+### Identification of missing values and outliers
+### Data cleaning and preprocessing steps
+```{r Data cleaning}
+# Check the number of missing (NA) values in each column
+na_counts <- colSums(is.na(dm_data))
+cat("Number of NA values per column:\n")
+print(na_counts)
+
+# Outliers/ Check the number of zero values in each column
+zero_counts <- sapply(dm_data, function(x) sum(x == 0, na.rm = TRUE))
+cat("\nNumber of zero values per column:\n")
+print(zero_counts)
+
+# Replace zero values with NA in columns where zero is not a valid value
+vars_with_invalid_zero <- c("Glucose", "BloodPressure", "SkinThickness", "Insulin", "BMI")
+dm_data <- dm_data %>%
+  mutate(across(all_of(vars_with_invalid_zero), ~ na_if(., 0)))
+
+# Remove rows with any NA values
+dm_data_clean <- na.omit(dm_data)
+
+# Display the number of remaining observations
+cat("\nNumber of observations after removing rows with NA:\n")
+print(nrow(dm_data_clean))
+  
+# Log-transform variables with right-skewed distributions
+dm_data_clean <- dm_data_clean %>%
+  mutate(log_DiabetesPedigreeFunction = log(DiabetesPedigreeFunction),
+         log_Insulin = log(Insulin))
+
+```
+
+### Visualizations (after data cleaning)
+```{r Visualizations}
+# Histograms for continuous variables
+numeric_vars <- dm_data_clean %>%
+  select(where(is.numeric)) %>%
+  select(-Id) %>%
+  select(-Outcome) 
+
+# Loop to plot histograms
+for (var in names(numeric_vars)) {
+  plot1 <- ggplot(dm_data_clean, aes_string(x = var)) +
+    geom_histogram(bins = 30, fill = "steelblue", color = "white", alpha = 0.8) +
+    labs(title = paste("Histogram of", var), x = var, y = "Count") +
+    theme_minimal()
+  print(plot1)
+}
+
+# Change the numeric 'Pregnancies' variable into a categorical variable 'Pregnancy_Group'.
+dm_data_clean <- dm_data_clean %>%
+  mutate(Pregnancy_Group = case_when(
+    Pregnancies == 0 ~ "0",
+    Pregnancies <= 2 ~ "1-2",
+    Pregnancies <= 5 ~ "3-5",
+    Pregnancies >= 6 ~ "6+"
+  )) %>%
+  mutate(Pregnancy_Group = factor(Pregnancy_Group, levels = c("0", "1-2", "3-5", "6+")))
+
+
+# Bar plot for Pregnancy_Group (categorical variable)
+ggplot(dm_data_clean, aes(x = Pregnancy_Group)) +
+  geom_bar(fill = "steelblue", alpha = 0.8) +
+  labs(title = "Count of Observations by Pregnancy Group",
+       x = "Pregnancy Group", y = "Count") +
+  theme_minimal()
+```
+
+## Regression Assumptions Verification
+```{r regression assumptions verification}
+# multivariate Linear Regressions for Glucose
+# full model with all variables
+mod1 <- lm(Glucose ~ BloodPressure + SkinThickness + BMI + Age + Pregnancy_Group + log_DiabetesPedigreeFunction,
+           data = dm_data_clean)
+summary(mod1)
+
+# install.packages("car")
+# Residuals
+resid_mod1 <- residuals(mod1)
+fitted_mod1 <- fitted(mod1)
+
+# linearity & Homoscedasticity: Residuals vs Fitted
+ggplot(data = NULL, aes(x = fitted_mod1, y = resid_mod1)) +
+  geom_point(alpha = 0.4) +
+  geom_hline(yintercept = 0, color = "red") +
+  labs(title = "Residuals vs Fitted", x = "Fitted values", y = "Residuals") +
+  theme_minimal()
+
+# normality of Residuals: Histogram
+ggplot(data = NULL, aes(x = resid_mod1)) +
+  geom_histogram(bins = 30, fill = "steelblue", alpha = 0.8, color = "white") +
+  labs(title = "Histogram of Residuals", x = "Residuals", y = "Frequency") +
+  theme_minimal()
+
+# normality: Q-Q plot
+library(car)
+qqnorm(resid_mod1)
+qqline(resid_mod1, col = "red")
+
+# multicollinearity: VIF
+vif(mod1)
+```
+## Variable Selection
+```{r variable selection}
+# full model
+full_model <- lm(Glucose ~ BloodPressure + SkinThickness + BMI + Age + Pregnancy_Group + log_DiabetesPedigreeFunction, 
+                 data = dm_data_clean)
+
+# null model 
+null_model <- lm(Glucose ~ 1, data = dm_data_clean)
+
+# stepwise AIC
+step_aic <- step(object = null_model, direction = "forward", 
+                 scope = formula(full_model), k = 2, trace = 0)
+
+# stepwise BIC
+step_bic <- step(null_model, direction = "forward", 
+                 scope = formula(full_model), k = log(nrow(dm_data_clean)), trace = 0)
+
+# view model summaries to assess coefficients and R²
+summary(step_aic)
+summary(step_bic)
+
+# install.packages("caret")
+library(caret)
+
+# define 10-fold CV
+set.seed(123)
+ctrl <- trainControl(method = "cv", number = 10)
+
+# fit AIC-selected model using CV
+cv_model <- train(
+  Glucose ~ SkinThickness + BMI + Age + Pregnancy_Group + log_DiabetesPedigreeFunction,
+  data = dm_data_clean,
+  method = "lm",
+  trControl = ctrl
+)
+
+# print AIC model CV result
+print(cv_model)
+
+# fit BIC-selected model using CV
+cv_model_bic <- train(
+  Glucose ~ Age + BMI + Pregnancy_Group,
+  data = dm_data_clean,
+  method = "lm",
+  trControl = ctrl
+)
+
+# Print BIC model CV result
+print(cv_model_bic)
+```
+
+## Feature Impact Analysis
+```{r feature impact analysis}
+# final model
+final_model <- lm(Glucose ~ SkinThickness + BMI + Age + Pregnancy_Group + log_DiabetesPedigreeFunction, data = dm_data_clean)
+summary(final_model)
+
+# 95% confidence intervals
+confint(final_model)
+```
+
+The final model include five predictors: skin thickness, BMI, age, pregnancy group (0, 1-2, 3-5, 6+), and log-transformed diabetes pedigree function. All predictors except pregnancy group 3–5 and 6+ were statistically significant ($p$ < 0.05).
+
+- **Skin Thickness** ($\beta$ = 0.19, 95% CI: [0.004, 0.38], $p$ ≈ 0.045): For every one-millimeter increase in skin thickness, plasma glucose concentration is expected to increase by approximately 0.19 mg/dL, holding other variables constant. This supports the idea that subcutaneous fat distribution may contribute to glycemic differences.
+
+- **BMI** ($\beta$ = 0.59, 95% CI: [0.30, 0.87], $p$ < 0.001): For every one-unit increase in BMI (kg/m²), plasma glucose concentration is expected to increase by approximately 0.59 mg/dL, holding other variables constant. This supports the idea that higher adiposity contributes to glucose dysregulation.
+
+- **Age** ($\beta$ = 0.81, 95% CI: [0.61, 1.01], $p$ < 0.001): For every one-year increase in age, plasma glucose concentration (mg/dL) is expected to increase by approximately 0.81 mg/dL, holding other variables constant. This aligns with the known age-related decline in glucose regulation.
+
+- **Pregnancy group 1–2** ($\beta$ = –7.71, 95% CI: [-12.28, -3.14], $p$ < 0.01): Compared to individuals with no pregnancy history, having 1–2 prior pregnancies is associated with a decrease of approximately 7.71 mg/dL in plasma glucose concentration, holding other variables constant. Considering that no similar association was observed in the 3–5 and 6+ groups, this result may reflect differences in metabolic adaptation or potential selection bias in the dataset.
+
+- **log(Diabetes Pedigree Function)** ($\beta$ = 2.60, 95% CI: [0.18, 5.02], $p$ < 0.05): For every one-unit increase in the log-transformed genetic risk score, plasma glucose concentration is expected to increase by approximately 2.60 mg/dL, holding other variables constant. This highlights the role of hereditary predisposition in glucose regulation.
+
+# Discussion
+
+## Exploratory Data Analysis
+To examine variable distributions, histograms were used for all continuous variables. Outliers were further assessed based on using physiological thresholds instead of IQR. Several variables (glucose, blood pressure, insulin, and BMI) contained a large number of zero values, which are physiologically implausible and not clinically valid. These values were set to `NA` and excluded during data cleaning.
+
+Variables with right-skewed distributions, such as the diabetes pedigree function, was log-transformed to reduce skewness. While age was slightly skewed, log-transformation did not improve its distribution or model fit, so the original scale was retained.
+
+The  pregnancies variable was recoded into a categorical variable, `Pregnancy_Group`, to better capture potential nonlinear associations with glucose levels. This also facilitates group-wise comparison and helps address the sparsity of extreme pregnancy counts.
+
+## Regression Assumptions Verification
+
+To evaluate the validity of the linear regression model, key assumptions were assessed:
+
+* **Linearity:** In the residuals vs. fitted plot, no strong systematic patterns were observed, suggesting that the linearity assumption holds reasonably well. 
+
+* **Normality of residuals:** The Q-Q plot showed that residuals were approximately normally distributed, with only mild deviations at the tails. Despite slight tail deviations, the residuals are approximately normal, supporting the normality assumption
+
+* **Homoscedasticity:** The residuals vs. fitted plot also showed a roughly constant spread across fitted values. No strong funnel shape or heteroscedastic pattern was observed, indicating that the constant variance assumption is reasonably met.
+
+* **Independence of observations:** The dataset is cross-sectional, with each row representing a unique individual. There is no evidence of repeated measures or temporal correlation, so the independence assumption is considered met by design.
+
+* **Multicollinearity:** Variance inflation factors (VIFs) were computed for all predictors. All VIF values were well below the conventional threshold of 5, suggesting that multicollinearity is not a concern in the final model.
+
+## Assumption Violation Handling
+When key linear regression assumptions are violated, appropriate corrections should be required, such as variable transformation or model adjustment. In this project, no major violations were observed based on residual diagnostics. This may be because data transformations had already been performed during preprocessing. For instance, variables with right-skewed distributions like Diabetes Pedigree Function*= were log-transformed early on to stabilize variance and improve residual behavior. These preprocessing steps likely helped the model meet the regression assumptions without needing additional correction at the modeling stage.
+
+## Variable Selection & Hypothesis Testing
+To identify a parsimonious and interpretable model, I applied two variable selection techniques: forward selection using AIC and forward selection using BIC. Both methods begin from a null model and add variables based on their contribution to model fit. AIC tends to favor models with better predictive performance, while BIC applies a heavier penalty for model complexity, often leading to simpler models.
+
+In this case, the BIC-selected model included three predictors—Age, BMI, and Pregnancy_Group, while the AIC-selected model added two more: `log_DiabetesPedigreeFunction` and `SkinThickness`. `BloodPressure` was excluded by both methods. Model performance was further evaluated using 10-fold cross-validation. While both the AIC- and BIC-selected models performed similarly, the AIC model achieved slightly lower RMSE (28.21 vs. 28.30) and MAE (22.67 vs. 22.77), as well as marginally higher R². These differences, though modest, support the use of the AIC-selected model. I chose the AIC-selected model also because the added predictors were statistically significant and biologically meaningful. Including `log_DiabetesPedigreeFunction` captures hereditary risk, and `SkinThickness` may reflect subcutaneous fat distribution. Both of them are shown to be relevant to glucose metabolism.
+
+## Limitations & Future Directions
+
+This analysis has several limitations.
+
+First, the association observed in the 1–2 pregnancies group, where glucose levels were significantly lower compared to those with no pregnancy history, was unexpected and lacks a clear biological explanation. No similar association was found in the 3–5 or 6+ pregnancy groups, weakening the consistency of this finding. It is possible that individuals with 1–2 pregnancies share certain characteristics not captured in this dataset. This may reflect unmeasured confounders such as history of gestational diabetes, postpartum physiology, or lifestyle factors like diet and exercise. 
+
+Second, this highlights a broader limitation: the dataset lacks information on potential confounding variables such as physical activity, dietary intake, and medication use. These are known to influence glucose regulation, and their absence likely contributed to the relatively low R² (about 16%), suggesting that many important predictors remain unmeasured.
+
+Third, the age distribution is not diverse. Most participants fall between their 20s and 30s, which may limit the generalizability of the findings to other age groups.
+
+Fourth, the dataset does not label participants’ clinical status. Without knowing whether individuals are healthy, prediabetic, or have type 1, type 2, or gestational diabetes, subgroup analyses with clinical relevance could not be performed.
+
+Finally, this model was not externally validated. Without testing on an independent dataset, we cannot assess its generalizability to other populations.
+
+Future directions may include incorporating richer clinical variables and validating the model using external datasets. Testing nonlinear relationships or applying more flexible modeling strategies, such as machine learning, may also improve predictive performance.
+
+# Conclusion
+This project developed a linear regression model to estimate plasma glucose concentration 2 hours after an OGTT, using easily accessible clinical variables. After thorough data cleaning, assumption checking, and variable selection, the final model included five predictors: skin thickness, BMI, age, pregnancy group, and log-transformed diabetes pedigree function.
+
+While the model demonstrated reasonable predictive accuracy (RMSE ≈ 28 mg/dL) and all key regression assumptions were satisfied, it explained only about 16% of the variance in glucose. This suggests that important predictors may be missing.
+
+# References
+1. Lu X, Xie Q, Pan X, et al. Type 2 diabetes mellitus in adults: pathogenesis, prevention and therapy. Signal Transduct Target Ther. 2024;9(1):262. Published 2024 Oct 2. doi:10.1038/s41392-024-01951-9
+
+2. Liu Y, Feng W, Lou J, et al. Performance of a prediabetes risk prediction model: A systematic review. Heliyon. 2023;9(5):e15529. Published 2023 May 6. doi:10.1016/j.heliyon.2023.e15529
+
+3. NCD Risk Factor Collaboration (NCD-RisC). Worldwide trends in diabetes prevalence and treatment from 1990 to 2022: a pooled analysis of 1108 population-representative studies with 141 million participants [published correction appears in Lancet. 2025 Apr 5;405(10485):1146. doi: 10.1016/S0140-6736(25)00620-8.]. Lancet. 2024;404(10467):2077-2093. doi:10.1016/S0140-6736(24)02317-1
+
+4. Matz K, Tuomilehto J, Teuschl Y, Dachenhausen A, Brainin M. Comparison of oral glucose tolerance test and HbA1c in detection of disorders of glucose metabolism in patients with acute stroke. Cardiovasc Diabetol. 2020;19(1):204. Published 2020 Dec 5. doi:10.1186/s12933-020-01182-6
+
+5. Nur A, Tjandra S, Yumnanisha DA, Keane A, Bachtiar A. Predicting the risks of stroke, cardiovascular disease, and peripheral vascular disease among people with type 2 diabetes with artificial intelligence models: A systematic review and meta-analysis. Narra J. 2025;5(1):e2116. doi:10.52225/narra.v5i1.2116
+
+6. [Kaggle Datasets](https://www.kaggle.com/datasets/nanditapore/healthcare-diabetes/data)
